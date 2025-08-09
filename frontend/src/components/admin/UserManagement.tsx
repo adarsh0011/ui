@@ -13,6 +13,8 @@ import {
   FiRefreshCw,
   FiX,
   FiAlertCircle,
+  FiArrowUp,
+  FiArrowDown,
 } from 'react-icons/fi';
 import { useTranslation } from 'react-i18next';
 
@@ -22,6 +24,7 @@ import UserFormModal from './UserFormModal';
 import DeleteUserModal from './DeleteUserModal';
 import UserList from './UserList';
 import UserService from './UserService';
+import Dropdown, { DropdownOption } from '../ui/Dropdown';
 
 const UserManagement = () => {
   const { t } = useTranslation();
@@ -43,6 +46,15 @@ const UserManagement = () => {
   const [formError, setFormError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  // Filters state (adds dropdown controls)
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({
+    role: 'all' as 'all' | 'admin' | 'user',
+    permission: '' as string | '',
+    permissionLevel: '' as string | '',
+    sortBy: 'username' as 'username' | 'role' | 'created',
+    sortDirection: 'asc' as 'asc' | 'desc',
+  });
 
   // Form states
   const [username, setUsername] = useState('');
@@ -98,25 +110,49 @@ const UserManagement = () => {
 
   // Filter users based on search term
   useEffect(() => {
-    if (searchTerm.trim() === '') {
-      setFilteredUsers(users);
-    } else {
-      const lowerSearchTerm = searchTerm.toLowerCase();
-      setFilteredUsers(
-        users.filter(
-          user =>
-            user.username.toLowerCase().includes(lowerSearchTerm) ||
-            (user.is_admin && 'admin'.includes(lowerSearchTerm)) ||
-            (!user.is_admin && 'user'.includes(lowerSearchTerm)) ||
-            Object.keys(user.permissions || {}).some(
-              key =>
-                key.toLowerCase().includes(lowerSearchTerm) ||
-                user.permissions[key].toLowerCase().includes(lowerSearchTerm)
-            )
-        )
+    let result = [...users];
+
+    // Search term
+    if (searchTerm.trim() !== '') {
+      const lower = searchTerm.toLowerCase();
+      result = result.filter(
+        user =>
+          user.username.toLowerCase().includes(lower) ||
+          (user.is_admin && 'admin'.includes(lower)) ||
+          (!user.is_admin && 'user'.includes(lower)) ||
+          Object.keys(user.permissions || {}).some(key =>
+            key.toLowerCase().includes(lower)
+          )
       );
     }
-  }, [searchTerm, users]);
+
+    // Role
+    if (filters.role === 'admin') result = result.filter(u => u.is_admin);
+    if (filters.role === 'user') result = result.filter(u => !u.is_admin);
+
+    // Permission and level
+    if (filters.permission) {
+      result = result.filter(u => u.permissions && u.permissions[filters.permission!]);
+      if (filters.permissionLevel) {
+        result = result.filter(u => u.permissions?.[filters.permission!] === filters.permissionLevel);
+      }
+    }
+
+    // Sorting
+    const dir = filters.sortDirection === 'asc' ? 1 : -1;
+    result.sort((a, b) => {
+      if (filters.sortBy === 'username') return a.username.localeCompare(b.username) * dir;
+      if (filters.sortBy === 'role') return (a.is_admin === b.is_admin ? 0 : a.is_admin ? -1 : 1) * dir;
+      if (filters.sortBy === 'created') {
+        const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return (da - db) * dir;
+      }
+      return 0;
+    });
+
+    setFilteredUsers(result);
+  }, [searchTerm, users, filters]);
 
   const refreshUsers = async () => {
     setIsRefreshing(true);
@@ -414,8 +450,147 @@ const UserManagement = () => {
               <FiUserPlus size={18} />
               <span>{t('admin.users.actions.addUser')}</span>
             </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="flex items-center justify-center gap-1.5 rounded-lg border px-4 py-2.5 transition-all duration-200"
+              style={{
+                borderColor: isDark ? 'rgba(75, 85, 99, 0.5)' : 'rgba(226, 232, 240, 0.8)',
+                color: themeStyles.colors.text.secondary,
+                background: isDark ? 'rgba(31, 41, 55, 0.4)' : 'rgba(249, 250, 251, 0.8)',
+              }}
+              onClick={() => setShowFilters(v => !v)}
+            >
+              <FiFilter size={16} />
+              <span>Filters</span>
+            </motion.button>
           </div>
         </div>
+
+        {/* Filter panel with custom dropdowns */}
+        <AnimatePresence>
+          {showFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25 }}
+              className="overflow-hidden"
+            >
+              <div
+                className="rounded-xl border p-4"
+                style={{
+                  background: isDark ? 'rgba(17, 24, 39, 0.6)' : 'rgba(255, 255, 255, 0.85)',
+                  borderColor: isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(226, 232, 240, 0.9)',
+                }}
+              >
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                  {/* Role */}
+                  <div>
+                    <div className="mb-1 text-sm" style={{ color: themeStyles.colors.text.secondary }}>
+                      Role
+                    </div>
+                    <Dropdown
+                      value={filters.role}
+                      onChange={val => setFilters(prev => ({ ...prev, role: (val as any) || 'all' }))}
+                      options={[
+                        { value: 'all', label: 'All Roles' },
+                        { value: 'admin', label: 'Admin', dotColor: '#60a5fa' },
+                        { value: 'user', label: 'User', dotColor: '#f59e0b' },
+                      ]}
+                      placeholder="All Roles"
+                      isDark={isDark}
+                    />
+                  </div>
+
+                  {/* Permission */}
+                  <div>
+                    <div className="mb-1 text-sm" style={{ color: themeStyles.colors.text.secondary }}>
+                      Permission
+                    </div>
+                    <Dropdown
+                      value={filters.permission || ''}
+                      onChange={val =>
+                        setFilters(prev => ({
+                          ...prev,
+                          permission: (val as string) || '',
+                          // clear level when permission changes
+                          permissionLevel: val ? prev.permissionLevel : '',
+                        }))
+                      }
+                      options={[
+                        { value: '', label: 'Any Permission' },
+                        ...permissionComponents.map(pc => ({ value: pc.id, label: pc.name } as DropdownOption)),
+                      ]}
+                      placeholder="Any Permission"
+                      isDark={isDark}
+                    />
+                  </div>
+
+                  {/* Permission level */}
+                  <div>
+                    <div className="mb-1 text-sm" style={{ color: themeStyles.colors.text.secondary }}>
+                      Permission Level
+                    </div>
+                    <Dropdown
+                      value={filters.permissionLevel || ''}
+                      onChange={val => setFilters(prev => ({ ...prev, permissionLevel: (val as string) || '' }))}
+                      options={[
+                        { value: '', label: 'Any Level' },
+                        ...permissionLevels.map(l => ({ value: l.id, label: l.name } as DropdownOption)),
+                      ]}
+                      placeholder="Any Level"
+                      isDark={isDark}
+                      disabled={!filters.permission}
+                    />
+                  </div>
+
+                  {/* Sort by with direction toggle */}
+                  <div>
+                    <div className="mb-1 text-sm" style={{ color: themeStyles.colors.text.secondary }}>
+                      Sort By
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <Dropdown
+                          value={filters.sortBy}
+                          onChange={val => setFilters(prev => ({ ...prev, sortBy: (val as any) || 'username' }))}
+                          options={[
+                            { value: 'username', label: 'Username' },
+                            { value: 'role', label: 'Role' },
+                            { value: 'created', label: 'Created' },
+                          ]}
+                          placeholder="Username"
+                          isDark={isDark}
+                        />
+                      </div>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() =>
+                          setFilters(prev => ({
+                            ...prev,
+                            sortDirection: prev.sortDirection === 'asc' ? 'desc' : 'asc',
+                          }))
+                        }
+                        className="flex h-[42px] w-11 items-center justify-center rounded-lg border"
+                        style={{
+                          borderColor: isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(226, 232, 240, 0.9)',
+                          background: isDark ? 'rgba(31, 41, 55, 0.6)' : 'rgba(243, 244, 246, 0.9)',
+                          color: themeStyles.colors.text.secondary,
+                        }}
+                        title={filters.sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+                      >
+                        {filters.sortDirection === 'asc' ? <FiArrowUp /> : <FiArrowDown />}
+                      </motion.button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Success message */}
         <AnimatePresence>
